@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sponsoring Slideshow
+Comment=Random photo slideshow with sponsor pages
+Exec=sponsoring-slideshow
+Icon=io.github.fassbinb.SponsoringSlideshow
+Categories=Graphics;Viewer;
+Terminal=false
+StartupNotify=true
