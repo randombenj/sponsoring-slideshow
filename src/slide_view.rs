@@ -15,9 +15,9 @@ struct Motion {
 
 impl Motion {
     fn random() -> Self {
-        let max_zoom = 1.12 + fastrand::f32() * 0.13;
+        let max_zoom = 1.05 + fastrand::f32() * 0.04;
         let (zoom_from, zoom_to) = if fastrand::bool() { (1.0, max_zoom) } else { (max_zoom, 1.0) };
-        let rand_pan = || (fastrand::f32() * 2.0 - 1.0, fastrand::f32() * 2.0 - 1.0);
+        let rand_pan = || (fastrand::f32() - 0.5, fastrand::f32() - 0.5);
         Self { zoom_from, zoom_to, pan_from: rand_pan(), pan_to: rand_pan() }
     }
 }

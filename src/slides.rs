@@ -9,6 +9,9 @@ use walkdir::WalkDir;
 
 /// Larger images are downscaled to keep decoding and GPU uploads fast.
 const MAX_DIM: u32 = 2560;
+/// Photos below this resolution (either orientation) look too pixelated when shown fullscreen.
+const MIN_LONG_SIDE: u32 = 500;
+const MIN_SHORT_SIDE: u32 = 300;
 const IMAGE_EXTENSIONS: [&str; 3] = ["jpg", "jpeg", "png"];
 
 pub struct Slide {
@@ -40,7 +43,7 @@ pub fn spawn(cfg: Config) -> Receiver<Msg> {
 }
 
 fn run(cfg: &Config, tx: &SyncSender<Msg>) -> Result<(), String> {
-    let images = scan_images(&cfg.folder);
+    let mut images = scan_images(&cfg.folder);
     if images.is_empty() {
         return Err(format!("No JPG/PNG images found in {}", cfg.folder.display()));
     }
@@ -54,7 +57,6 @@ fn run(cfg: &Config, tx: &SyncSender<Msg>) -> Result<(), String> {
     let mut order: Vec<PathBuf> = Vec::new();
     let mut since_sponsor = 0;
     let mut sponsor_idx = 0;
-    let mut failures = 0;
 
     loop {
         let slide = if !sponsors.is_empty() && since_sponsor >= cfg.images_per_sponsor {
@@ -68,17 +70,16 @@ fn run(cfg: &Config, tx: &SyncSender<Msg>) -> Result<(), String> {
                 fastrand::shuffle(&mut order);
             }
             let path = order.pop().expect("order was refilled");
-            match load_image(&path) {
+            match check_resolution(&path).and_then(|()| load_image(&path)) {
                 Ok(image) => {
-                    failures = 0;
                     since_sponsor += 1;
                     Slide { image, sponsor: false }
                 }
                 Err(e) => {
                     eprintln!("Skipping {}: {e}", path.display());
-                    failures += 1;
-                    if failures >= images.len() {
-                        return Err("None of the images could be loaded".into());
+                    images.retain(|p| *p != path);
+                    if images.is_empty() {
+                        return Err("No usable images (unreadable or resolution too low)".into());
                     }
                     continue;
                 }
@@ -129,6 +130,14 @@ fn render_pdf(pdf: &Path) -> Result<Vec<RgbaImage>, String> {
         .collect();
     pages.sort();
     pages.iter().map(|p| load_image(p)).collect()
+}
+
+fn check_resolution(path: &Path) -> Result<(), String> {
+    let (w, h) = image::image_dimensions(path).map_err(|e| e.to_string())?;
+    if w.max(h) < MIN_LONG_SIDE || w.min(h) < MIN_SHORT_SIDE {
+        return Err(format!("resolution too low ({w}x{h})"));
+    }
+    Ok(())
 }
 
 fn load_image(path: &Path) -> Result<RgbaImage, String> {

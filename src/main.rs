@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use slide_view::SlideView;
 use slides::Msg;
 
-const APP_ID: &str = "io.github.fassbinb.SponsoringSlideshow";
+const APP_ID: &str = "io.github.randombenj.SponsoringSlideshow";
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]

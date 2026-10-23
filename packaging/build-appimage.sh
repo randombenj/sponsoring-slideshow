@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP_ID=io.github.fassbinb.SponsoringSlideshow
+APP_ID=io.github.randombenj.SponsoringSlideshow
 BIN=sponsoring-slideshow
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
 OUT=target/appimage
