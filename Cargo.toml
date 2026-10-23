@@ -1,0 +1,17 @@
+[package]
+name = "sponsoring-slideshow"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+adw = { version = "0.9.2", package = "libadwaita", features = ["v1_5"] }
+fastrand = "2.5.0"
+gtk = { version = "0.11.5", package = "gtk4", features = ["v4_14"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+walkdir = "2.5.0"
+
+[profile.dev.package."*"]
+opt-level = 3
