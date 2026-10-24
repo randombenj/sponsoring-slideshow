@@ -11,7 +11,7 @@ use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use serde::{Deserialize, Serialize};
 
-use slide_view::SlideView;
+use slide_view::{Corners, DEFAULT_CORNERS, SlideView, test_pattern};
 use slides::Msg;
 
 const APP_ID: &str = "io.github.randombenj.SponsoringSlideshow";
@@ -25,6 +25,9 @@ struct Settings {
     zoom_pan: bool,
     watermark: Option<PathBuf>,
     watermark_opacity: f64,
+    tilt: bool,
+    tilt_corners: Corners,
+    recent_folders: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -36,6 +39,9 @@ impl Default for Settings {
             zoom_pan: true,
             watermark: None,
             watermark_opacity: 0.2,
+            tilt: false,
+            tilt_corners: DEFAULT_CORNERS,
+            recent_folders: Vec::new(),
         }
     }
 }
@@ -70,6 +76,7 @@ struct Slideshow {
     stack: gtk::Stack,
     view: SlideView,
     message: gtk::Label,
+    recent: gtk::Box,
     rx: RefCell<Option<Receiver<Msg>>>,
     tick: RefCell<Option<gtk::TickCallbackId>>,
 }
@@ -81,6 +88,14 @@ impl Slideshow {
 
     fn start(self: &Rc<Self>, folder: PathBuf) {
         self.stop();
+        {
+            let mut s = self.settings.borrow_mut();
+            s.recent_folders.retain(|f| *f != folder);
+            s.recent_folders.insert(0, folder.clone());
+            s.recent_folders.truncate(2);
+            s.save();
+        }
+        self.refresh_recent();
         let cfg = {
             let s = self.settings.borrow();
             slides::Config {
@@ -103,7 +118,35 @@ impl Slideshow {
         self.tick.replace(Some(id));
     }
 
+    fn refresh_recent(self: &Rc<Self>) {
+        while let Some(child) = self.recent.first_child() {
+            self.recent.remove(&child);
+        }
+        let folders = self.settings.borrow().recent_folders.clone();
+        for (i, folder) in folders.into_iter().filter(|f| f.is_dir()).enumerate() {
+            let name = folder
+                .file_name()
+                .map_or_else(|| folder.display().to_string(), |n| n.to_string_lossy().into_owned());
+            let button = gtk::Button::builder()
+                .label(format!("Resume “{name}”"))
+                .tooltip_text(folder.display().to_string())
+                .css_classes(["pill"])
+                .build();
+            if i == 0 {
+                button.add_css_class("suggested-action");
+            }
+            let this = Rc::downgrade(self);
+            button.connect_clicked(move |_| {
+                if let Some(this) = this.upgrade() {
+                    this.start(folder.clone());
+                }
+            });
+            self.recent.append(&button);
+        }
+    }
+
     fn stop(&self) {
+        self.set_adjusting(false);
         if let Some(id) = self.tick.take() {
             id.remove();
         }
@@ -129,6 +172,28 @@ impl Slideshow {
             }
         }
         self.view.update(zoom_pan, duration, watermark_opacity);
+    }
+
+    fn adjust_tilt(&self) {
+        if !self.is_running() {
+            self.view.set_slide(test_pattern(), true);
+            self.message.set_visible(false);
+            self.stack.set_visible_child_name("show");
+        }
+        self.set_adjusting(true);
+    }
+
+    fn set_adjusting(&self, adjusting: bool) {
+        if !adjusting && self.view.is_adjusting() {
+            let mut s = self.settings.borrow_mut();
+            s.tilt_corners = self.view.corners();
+            s.save();
+            if !self.is_running() {
+                self.view.clear();
+                self.stack.set_visible_child_name("empty");
+            }
+        }
+        self.view.set_adjusting(adjusting);
     }
 
     fn show_message(&self, text: &str) {
@@ -237,7 +302,10 @@ fn watermark_rows(settings: &Rc<RefCell<Settings>>, view: &SlideView) -> (adw::A
     (row, opacity)
 }
 
-fn settings_popover(settings: &Rc<RefCell<Settings>>, view: &SlideView) -> (gtk::Popover, adw::SwitchRow) {
+fn settings_popover(
+    settings: &Rc<RefCell<Settings>>,
+    view: &SlideView,
+) -> (gtk::Popover, adw::SwitchRow, adw::SwitchRow, adw::ActionRow) {
     let (watermark, watermark_opacity) = watermark_rows(settings, view);
     let s = settings.borrow();
 
@@ -278,9 +346,30 @@ fn settings_popover(settings: &Rc<RefCell<Settings>>, view: &SlideView) -> (gtk:
         s.save();
     });
 
+    view.set_tilt(s.tilt);
+    view.set_corners(s.tilt_corners);
+    let tilt = adw::SwitchRow::builder()
+        .title("Compensate projector tilt")
+        .active(s.tilt)
+        .build();
+    let (st, v) = (settings.clone(), view.clone());
+    tilt.connect_active_notify(move |row| {
+        v.set_tilt(row.is_active());
+        let mut s = st.borrow_mut();
+        s.tilt = row.is_active();
+        s.save();
+    });
+
+    let adjust = adw::ActionRow::builder()
+        .title("Adjust tilt")
+        .subtitle("Drag the corners on a test image")
+        .activatable(true)
+        .build();
+    adjust.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+
     let group = adw::PreferencesGroup::builder()
         .title("Slideshow")
-        .description("F11 fullscreen · Esc stop · Space next slide · Z zoom and pan")
+        .description("F11 fullscreen · Esc stop · Space next slide · Z zoom and pan · K adjust tilt")
         .build();
     group.add(&secs);
     group.add(&every);
@@ -288,19 +377,21 @@ fn settings_popover(settings: &Rc<RefCell<Settings>>, view: &SlideView) -> (gtk:
     group.add(&zoom);
     group.add(&watermark);
     group.add(&watermark_opacity);
+    group.add(&tilt);
+    group.add(&adjust);
     group.set_margin_top(6);
     group.set_margin_bottom(6);
     group.set_margin_start(6);
     group.set_margin_end(6);
     group.set_width_request(380);
 
-    (gtk::Popover::builder().child(&group).build(), zoom)
+    (gtk::Popover::builder().child(&group).build(), zoom, tilt, adjust)
 }
 
 fn build_ui(app: &adw::Application) {
     let settings = Rc::new(RefCell::new(Settings::load()));
     let view = SlideView::new();
-    let (popover, zoom_row) = settings_popover(&settings, &view);
+    let (popover, zoom_row, tilt_row, adjust_row) = settings_popover(&settings, &view);
 
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
@@ -316,6 +407,12 @@ fn build_ui(app: &adw::Application) {
         .description("All JPG and PNG images in the folder and its subfolders are shown in random order")
         .build();
     empty.set_cursor_from_name(Some("pointer"));
+    let recent = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .halign(gtk::Align::Center)
+        .build();
+    empty.set_child(Some(&recent));
 
     view.set_cursor_from_name(Some("none"));
     let message = gtk::Label::builder()
@@ -324,6 +421,7 @@ fn build_ui(app: &adw::Application) {
         .justify(gtk::Justification::Center)
         .wrap(true)
         .css_classes(["title-2"])
+        .can_target(false)
         .build();
     let overlay = gtk::Overlay::builder().child(&view).build();
     overlay.add_overlay(&message);
@@ -350,14 +448,35 @@ fn build_ui(app: &adw::Application) {
         stack,
         view,
         message,
+        recent: recent.clone(),
         rx: RefCell::new(None),
         tick: RefCell::new(None),
     });
+    show.refresh_recent();
+
+    let s = show.clone();
+    window.connect_close_request(move |_| {
+        s.stop();
+        glib::Propagation::Proceed
+    });
 
     let click = gtk::GestureClick::new();
-    let (w, s) = (window.clone(), show.clone());
-    click.connect_released(move |_, _, _, _| open_folder(&w, &s));
+    let (w, s, e) = (window.clone(), show.clone(), empty.clone());
+    click.connect_released(move |_, _, x, y| {
+        // Clicks on the Resume buttons must not also open the folder dialog.
+        if e.pick(x, y, gtk::PickFlags::DEFAULT).is_some_and(|t| t == recent || t.is_ancestor(&recent)) {
+            return;
+        }
+        open_folder(&w, &s);
+    });
     empty.add_controller(click);
+
+    let (p, t, s) = (popover.clone(), tilt_row.clone(), show.clone());
+    adjust_row.connect_activated(move |_| {
+        p.popdown();
+        t.set_active(true);
+        s.adjust_tilt();
+    });
 
     // Capture phase so Space isn't swallowed by a focused header button.
     let keys = gtk::EventControllerKey::new();
@@ -366,8 +485,10 @@ fn build_ui(app: &adw::Application) {
     keys.connect_key_pressed(move |_, key, _, _| {
         let menu_open = popover.is_visible();
         let running = show.is_running() && !menu_open;
+        let adjusting = !menu_open && show.view.is_adjusting();
         match key {
             gdk::Key::F11 => w.set_fullscreened(!w.is_fullscreen()),
+            gdk::Key::Escape if adjusting => show.set_adjusting(false),
             gdk::Key::Escape if running => {
                 show.stop();
                 w.unfullscreen();
@@ -375,6 +496,12 @@ fn build_ui(app: &adw::Application) {
             gdk::Key::Escape if !menu_open && w.is_fullscreen() => w.unfullscreen(),
             gdk::Key::space | gdk::Key::Right if running => show.advance(true),
             gdk::Key::z | gdk::Key::Z if running => zoom_row.set_active(!zoom_row.is_active()),
+            gdk::Key::k | gdk::Key::K if adjusting => show.set_adjusting(false),
+            gdk::Key::k | gdk::Key::K if running => {
+                tilt_row.set_active(true);
+                show.set_adjusting(true);
+            }
+            gdk::Key::r | gdk::Key::R if adjusting => show.view.set_corners(DEFAULT_CORNERS),
             _ => return glib::Propagation::Proceed,
         }
         glib::Propagation::Stop

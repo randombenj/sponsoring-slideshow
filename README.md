@@ -8,9 +8,10 @@ A GTK4/libadwaita slideshow for club events. It shows all photos in a folder (in
 - Shows one page of a sponsoring PDF in the folder after every N photos, cycling through its pages (default: `sponsoring.pdf`, every 10 photos)
 - Optional slow zoom and pan effect
 - Optional watermark (e.g. a transparent PNG logo) in the bottom right corner of photos, with adjustable opacity
+- Projector tilt compensation: drag the four corners until the picture is rectangular on the wall (☰ → Adjust tilt shows a test image, or press <kbd>K</kbd> during the slideshow)
 - Skips images that are too small to look good fullscreen
 
-Settings are in the ☰ menu and are saved to `~/.config/sponsoring-slideshow/settings.json`.
+Settings are in the ☰ menu and are saved to `~/.config/sponsoring-slideshow/settings.json`, together with the projector tilt and the last two folders, which can be resumed from the start screen.
 
 ## Keyboard shortcuts
 
@@ -20,6 +21,7 @@ Settings are in the ☰ menu and are saved to `~/.config/sponsoring-slideshow/se
 | <kbd>Esc</kbd> | Stop the slideshow |
 | <kbd>Space</kbd> / <kbd>→</kbd> | Next slide |
 | <kbd>Z</kbd> | Toggle zoom and pan |
+| <kbd>K</kbd> | Adjust projector tilt (drag the corners, <kbd>R</kbd> resets, <kbd>K</kbd> or <kbd>Esc</kbd> when done) |
 
 ## Requirements
 
