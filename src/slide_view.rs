@@ -212,20 +212,21 @@ mod imp {
                 (1.0, (0.0, 0.0))
             };
 
-            let (iw, ih) = (tw * fit * zoom, th * fit * zoom);
-            let cx = w / 2.0 + px * (iw - w).max(0.0) / 2.0;
-            let cy = h / 2.0 + py * (ih - h).max(0.0) / 2.0;
+            // Zoom and pan happen inside the fitted frame, so the frame on screen never changes size.
+            let (bw, bh) = (tw * fit, th * fit);
+            let frame = graphene::Rect::new((w - bw) / 2.0, (h - bh) / 2.0, bw, bh);
+            let (iw, ih) = (bw * zoom, bh * zoom);
+            let cx = w / 2.0 + px * (iw - bw) / 2.0;
+            let cy = h / 2.0 + py * (ih - bh) / 2.0;
             let rect = graphene::Rect::new(cx - iw / 2.0, cy - ih / 2.0, iw, ih);
 
-            snapshot.push_clip(&bounds);
+            snapshot.push_clip(&frame);
             snapshot.append_scaled_texture(&cur.texture, gsk::ScalingFilter::Trilinear, &rect);
             snapshot.pop();
 
             if !cur.sponsor
                 && let Some(wm) = self.watermark.borrow().as_ref()
             {
-                // Anchored to the unzoomed image so it stays put during zoom and pan.
-                let (bw, bh) = (tw * fit, th * fit);
                 let (right, bottom) = ((w + bw) / 2.0, (h + bh) / 2.0);
                 let (ww, wh) = (wm.width() as f32, wm.height() as f32);
                 let scale = (bw * 0.2 / ww).min(bh * 0.12 / wh);
